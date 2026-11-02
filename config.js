@@ -1,2 +1,3 @@
-/* Public configuration only. Never put a Turso token here. */
-window.SOUVENIR_CONFIG={apiUrl:""};
+window.SOUVENIR_CONFIG = {
+  apiUrl: "https://souvenir-school-api.s80802655.workers.dev"
+};
