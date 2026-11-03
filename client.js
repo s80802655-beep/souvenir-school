@@ -49,11 +49,29 @@
   const proof=clientKey.map((b,i)=>b^signature[i]);clientKey.fill(0);
   return [...proof].map(b=>b.toString(16).padStart(2,'0')).join('');
  }
+ async function changeTemporaryPassword(temporarySession){
+  return new Promise((resolve,reject)=>{
+   const panel=document.createElement('dialog');panel.setAttribute('aria-label','Change temporary administrator password');
+   panel.style.cssText='max-width:460px;width:90%;border:1px solid #c8d7da;border-radius:14px;padding:26px;color:#12313e';
+   panel.innerHTML='<form><h2>Choose your own password</h2><p>Your temporary administrator password must be changed before opening school records.</p><label>New password (8+ characters)<input name="newPassword" type="password" minlength="8" maxlength="256" autocomplete="new-password" required style="display:block;width:100%;padding:12px;margin:8px 0 16px"></label><label>Repeat new password<input name="confirmation" type="password" autocomplete="new-password" required style="display:block;width:100%;padding:12px;margin:8px 0 16px"></label><p role="status"></p><button type="submit" class="btn">Save password and sign in</button></form>';
+   document.body.append(panel);panel.showModal();panel.addEventListener('cancel',e=>e.preventDefault());
+   const form=panel.querySelector('form'),status=panel.querySelector('[role="status"]'),button=panel.querySelector('button');
+   form.onsubmit=async e=>{e.preventDefault();const password=form.elements.newPassword.value;
+    if(password.length<8||password.length>256){status.textContent='Use 8–256 characters.';return}
+    if(password!==form.elements.confirmation.value){status.textContent='The two passwords must match.';return}
+    button.disabled=true;status.textContent='Saving your new password…';
+    try{const salt=[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join(''),storedKey=await deriveStoredKey(password,salt);
+     const r=await invoke({kind:'auth',action:'changePassword',token:temporarySession.access_token,salt,storedKey});if(r.error)throw Error(r.error.message);
+     localStorage.removeItem('souvenir-admin-activation-'+window.SOUVENIR_CONFIG.apiUrl);form.reset();panel.close();panel.remove();resolve(r);
+    }catch(error){status.textContent=error.message;button.disabled=false}
+   };
+  });
+ }
  async function auth(action,p={}){try{
   const hint=document.getElementById('lerr');if(hint)hint.textContent=action==='signup'?'Creating your account. Please wait…':'Signing in. Please wait…';
   let r;
   if(action==='login'&&crypto.subtle){
-   const c=await invoke({kind:'auth',action:'challenge',email:p.email});
+   const c=await invoke({kind:'auth',action:'challenge',email:p.email,activation:localStorage.getItem('souvenir-admin-activation-'+window.SOUVENIR_CONFIG.apiUrl)||''});
    if(c.error)return{data:{session:null},error:c.error};
    const proof=await makeLoginProof(p.password,c.data);
    r=await invoke({kind:'auth',action:'loginProof',email:p.email,nonce:c.data.nonce,proof});
@@ -63,7 +81,7 @@
    const key=await deriveStoredKey(p.password,salt);
    r=await invoke({kind:'auth',action:'signup',email:p.email,code:p.code,salt,storedKey:key});
   }else throw Error('Use an up-to-date browser with HTTPS to sign in.');
-  if(r.error)return{data:{session:null},error:r.error};setSession(r.data.session);return{data:{session:r.data.session},error:null};
+  if(r.error)return{data:{session:null},error:r.error};if(r.data.session.user.requires_password_change)r=await changeTemporaryPassword(r.data.session);setSession(r.data.session);return{data:{session:r.data.session},error:null};
  }catch(e){return{data:{session:null},error:{message:e.message}}}}
 
  window.SOUVENIR_DB={from:t=>new Query(t),rpc:(name,args)=>send({kind:'rpc',name,args}),auth:{getSession:async()=>{if(!alive())await publicSchool();return{data:{session:alive()?session:null},error:null}},signInWithPassword:p=>auth('login',p),signUp:p=>auth('signup',{...p,code:document.getElementById('lcode')?.value||''}),signOut:async()=>{setSession(null);return{error:null}}}};
