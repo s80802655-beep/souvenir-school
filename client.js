@@ -5,7 +5,7 @@
  try{session=JSON.parse(localStorage.getItem(storageKey)||'null')}catch(e){}
  const setSession=s=>{session=s;try{s?localStorage.setItem(storageKey,JSON.stringify(s)):localStorage.removeItem(storageKey)}catch(e){}};
  const alive=()=>session&&session.expires_at*1000>Date.now();
- const offline=window.SouvenirOfflineFactory?.({invoke,getSession:()=>session,apiUrl:window.SOUVENIR_CONFIG?.apiUrl||''});
+ const offline=null; /* offline mode removed: the app is faster and always shows live school data */
  async function invoke(request){
  const url=window.SOUVENIR_CONFIG?.apiUrl;
  if(!url||!/^https:\/\//.test(url))throw Error('The school app is not connected yet. Set apiUrl in config.js to your Cloudflare Worker HTTPS address.');
@@ -13,10 +13,12 @@
  try{const response=await fetch(url.replace(/\/$/,'')+'/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request),signal:controller.signal,cache:'no-store'});let result;try{result=await response.json()}catch{throw Error('The school server did not return data. Check the Worker address.')}if(!response.ok)throw Error(result.error?.message||'The school server could not complete the request.');return result}catch(e){if(e.name==='TypeError'||e.name==='AbortError'||/failed to fetch|networkerror|load failed/i.test(e.message||''))e.network=true;throw e}finally{clearTimeout(timeout)}
  }
 
+ let pending=[],timer=null;
  let publicSchoolPromise;
  async function publicSchool(){if(!window.SOUVENIR_CONFIG?.apiUrl)return;return publicSchoolPromise??=(async()=>{try{const r=await fetch(window.SOUVENIR_CONFIG.apiUrl.replace(/\/$/,'')+'/health',{cache:'no-store',signal:AbortSignal.timeout(8000)}),data=await r.json();if(data.schoolName&&window.STANDALONE_BOOT)window.STANDALONE_BOOT.schoolName=data.schoolName}catch{}})()}
- let pending=[],timer=null;
- function send(item){return new Promise(resolve=>{pending.push({item,resolve});if(timer)return;timer=setTimeout(async()=>{timer=null;const batch=pending;pending=[];try{const r=offline?await offline.send(batch.map(v=>v.item)):await invoke({kind:'batch',token:alive()?session.access_token:'',items:batch.map(v=>v.item)});if(r.error){batch.forEach(v=>v.resolve({data:null,error:r.error}));if(/AUTH_REQUIRED/.test(r.error.message)){setSession(null);if(typeof NEEDLOGIN!=='undefined'){NEEDLOGIN=true;render()}}}else batch.forEach((v,i)=>v.resolve(r.data[i]))}catch(e){batch.forEach(v=>v.resolve({data:null,error:{message:e.message}}))}},0)})}
+  function send(item){return new Promise(resolve=>{pending.push({item,resolve});if(timer)return;timer=setTimeout(()=>{timer=null;const all=pending;pending=[];for(let i=0;i<all.length;i+=20)run(all.slice(i,i+20))},0)})}
+ async function run(batch){try{const r=await invoke({kind:'batch',token:alive()?session.access_token:'',items:batch.map(v=>v.item)});
+  if(r.error){batch.forEach(v=>v.resolve({data:null,error:r.error}));if(/AUTH_REQUIRED/.test(r.error.message)){setSession(null);if(typeof NEEDLOGIN!=='undefined'){NEEDLOGIN=true;render()}}}else batch.forEach((v,i)=>v.resolve(r.data[i]))}catch(e){batch.forEach(v=>v.resolve({data:null,error:{message:e.message}}))}}
  class Query{
   constructor(table){this.q={kind:'query',table,operation:'select',filters:[],orders:[]};this.promise=null}
   select(columns='*'){this.q.columns=columns;return this}eq(k,v){this.q.filters.push(['eq',k,v]);return this}in(k,v){this.q.filters.push(['in',k,v]);return this}gt(k,v){this.q.filters.push(['gt',k,v]);return this}
@@ -85,5 +87,5 @@
   if(r.error)return{data:{session:null},error:r.error};if(r.data.session.user.requires_password_change)r=await changeTemporaryPassword(r.data.session);setSession(r.data.session);return{data:{session:r.data.session},error:null};
  }catch(e){return{data:{session:null},error:{message:e.message}}}}
 
- window.SOUVENIR_DB={offline,from:t=>new Query(t),rpc:(name,args)=>send({kind:'rpc',name,args}),auth:{getSession:async()=>{let cached=false;if(session&&offline){try{await offline.open();cached=offline.status().ready}catch{}}if(!alive()&&navigator.onLine!==false)await publicSchool();return{data:{session:alive()||navigator.onLine===false&&cached?session:null},error:null}},signInWithPassword:p=>auth('login',p),signUp:p=>auth('signup',{...p,code:document.getElementById('lcode')?.value||''}),signOut:async()=>{try{if(offline)await offline.logout();setSession(null);return{error:null}}catch(e){return{error:{message:e.message}}}}}};
+ window.SOUVENIR_DB={offline,from:t=>new Query(t),rpc:(name,args)=>send({kind:'rpc',name,args}),auth:{getSession:async()=>{if(!alive()&&navigator.onLine!==false)await publicSchool();return{data:{session:alive()?session:null},error:null}},signInWithPassword:p=>auth('login',p),signUp:p=>auth('signup',{...p,code:document.getElementById('lcode')?.value||''}),signOut:async()=>{setSession(null);return{error:null}}}};
 })();

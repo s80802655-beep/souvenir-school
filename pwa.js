@@ -19,7 +19,12 @@
  function ready(){
   button=document.createElement('button');button.id='souvenir-install';button.type='button';button.textContent='Install app';button.setAttribute('aria-label','Install Souvenir app');button.style.cssText='position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:20;border:1px solid #dfb95b;border-radius:24px;background:#12313e;color:#fff;box-shadow:0 3px 12px #12313e33;padding:12px 18px;font:600 14px system-ui,sans-serif;cursor:pointer';button.onclick=install;document.body.append(button);updateButton();
   const media=window.matchMedia('(display-mode: standalone)');media.addEventListener?.('change',updateButton);
-  if('serviceWorker'in navigator&&window.isSecureContext)navigator.serviceWorker.register('sw.js',{scope:'./',updateViaCache:'none'}).then(registration=>registration.update()).catch(()=>{/* Browser menu can still offer installation. */});
+  if('serviceWorker'in navigator&&window.isSecureContext){
+   const hadController=!!navigator.serviceWorker.controller;
+   /* When a new version has been installed, offer a one-tap refresh instead of reloading in the middle of work. */
+   navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!hadController||document.getElementById('souvenir-update'))return;const b=document.createElement('button');b.id='souvenir-update';b.type='button';b.textContent='New version ready. Tap to refresh';b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top,0px));z-index:30;border:1px solid #dfb95b;border-radius:24px;background:#12313e;color:#fff;padding:11px 18px;font:600 14px system-ui,sans-serif;cursor:pointer;box-shadow:0 3px 12px #12313e55';b.onclick=()=>location.reload();document.body.append(b)});
+   navigator.serviceWorker.register('sw.js',{scope:'./',updateViaCache:'none'}).then(registration=>registration.update()).catch(()=>{/* Browser menu can still offer installation. */});
+  }
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();
 })();
