@@ -1,6 +1,14 @@
 /* HTTPS adapter. Database credentials never belong in this file. */
 (function(){
  if(!crypto.randomUUID)crypto.randomUUID=()=>{const b=new Uint8Array(16);crypto.getRandomValues(b);b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0'));return h.slice(0,4).join('')+'-'+h.slice(4,6).join('')+'-'+h.slice(6,8).join('')+'-'+h.slice(8,10).join('')+'-'+h.slice(10).join('')};
+ /* Progress bar: shows at the top whenever the app is loading or saving. */
+ const Prog=(()=>{let active=0,pct=0,timer=null,hide=null,msg='Loading…',bar,pill;
+  function mk(){if(bar||!document.body)return;bar=document.createElement('div');bar.setAttribute('role','progressbar');bar.setAttribute('aria-label','Loading');bar.style.cssText='position:fixed;left:0;top:0;height:4px;width:0;background:#dfb95b;z-index:99999;transition:width .25s,opacity .3s;opacity:0;pointer-events:none';pill=document.createElement('div');pill.setAttribute('role','status');pill.style.cssText='position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top,0px));background:#12313e;color:#fff;border:1px solid #dfb95b;border-radius:20px;padding:7px 16px;font:600 13px system-ui,sans-serif;z-index:99999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap';document.body.append(bar,pill)}
+  function paint(){mk();if(!bar)return;bar.style.opacity=active?1:0;bar.style.width=pct+'%';pill.textContent=msg+' '+Math.round(pct)+'%';pill.style.opacity=active&&pct>12?1:0}
+  function start(label){active++;if(label)msg=label;clearTimeout(hide);if(active===1){pct=6;clearInterval(timer);timer=setInterval(()=>{pct+=(92-pct)*.07;paint()},180)}paint()}
+  function end(){active=Math.max(0,active-1);if(!active){clearInterval(timer);pct=100;paint();hide=setTimeout(()=>{if(!active){pct=0;msg='Loading…';paint()}},350)}}
+  return{start,end,label:t=>{msg=t;paint()}}})();
+ window.SouvenirProgress=Prog;
  let session=null;const storageKey='souvenir-session-'+(window.SOUVENIR_CONFIG?.apiUrl||'unconfigured');
  try{session=JSON.parse(localStorage.getItem(storageKey)||'null')}catch(e){}
  const setSession=s=>{session=s;try{s?localStorage.setItem(storageKey,JSON.stringify(s)):localStorage.removeItem(storageKey)}catch(e){}};
@@ -17,8 +25,8 @@
  let publicSchoolPromise;
  async function publicSchool(){if(!window.SOUVENIR_CONFIG?.apiUrl)return;return publicSchoolPromise??=(async()=>{try{const r=await fetch(window.SOUVENIR_CONFIG.apiUrl.replace(/\/$/,'')+'/health',{cache:'no-store',signal:AbortSignal.timeout(8000)}),data=await r.json();if(data.schoolName&&window.STANDALONE_BOOT)window.STANDALONE_BOOT.schoolName=data.schoolName}catch{}})()}
   function send(item){return new Promise(resolve=>{pending.push({item,resolve});if(timer)return;timer=setTimeout(()=>{timer=null;const all=pending;pending=[];for(let i=0;i<all.length;i+=20)run(all.slice(i,i+20))},0)})}
- async function run(batch){try{const r=await invoke({kind:'batch',token:alive()?session.access_token:'',items:batch.map(v=>v.item)});
-  if(r.error){batch.forEach(v=>v.resolve({data:null,error:r.error}));if(/AUTH_REQUIRED/.test(r.error.message)){setSession(null);if(typeof NEEDLOGIN!=='undefined'){NEEDLOGIN=true;render()}}}else batch.forEach((v,i)=>v.resolve(r.data[i]))}catch(e){batch.forEach(v=>v.resolve({data:null,error:{message:e.message}}))}}
+ async function run(batch){const saving=batch.some(v=>v.item&&v.item.operation&&v.item.operation!=='select');Prog.start(saving?'Saving…':null);try{const r=await invoke({kind:'batch',token:alive()?session.access_token:'',items:batch.map(v=>v.item)});
+  if(r.error){batch.forEach(v=>v.resolve({data:null,error:r.error}));if(/AUTH_REQUIRED/.test(r.error.message)){setSession(null);if(typeof NEEDLOGIN!=='undefined'){NEEDLOGIN=true;render()}}}else batch.forEach((v,i)=>v.resolve(r.data[i]))}catch(e){batch.forEach(v=>v.resolve({data:null,error:{message:e.message}}))}finally{Prog.end()}}
  class Query{
   constructor(table){this.q={kind:'query',table,operation:'select',filters:[],orders:[]};this.promise=null}
   select(columns='*'){this.q.columns=columns;return this}eq(k,v){this.q.filters.push(['eq',k,v]);return this}in(k,v){this.q.filters.push(['in',k,v]);return this}gt(k,v){this.q.filters.push(['gt',k,v]);return this}

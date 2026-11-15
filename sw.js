@@ -1,5 +1,5 @@
 /* Only public app-shell files are cached, for fast opening. API answers, tokens and school records are never cached. */
-const VERSION='2026-11-04-fast';
+const VERSION='2026-11-15-v2';
 const ROOT=new URL('./',self.location.href);
 const PREFIX='souvenir-pwa-'+encodeURIComponent(ROOT.pathname)+'-';
 const CACHE=PREFIX+'shell-'+VERSION;
